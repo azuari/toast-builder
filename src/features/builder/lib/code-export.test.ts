@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { DEFAULT_OPTIONS_BY_TYPE } from "@/features/toast/constants";
 
-import { getJsonExport, getTypeScriptExport, getUsageExport } from "./code-export";
+import { getJsonExport, getNotifyExport, getTypeScriptExport, getUsageExport } from "./code-export";
 
 describe("code-export", () => {
   it("exports JSON, TypeScript and usage snippets", () => {
@@ -18,6 +18,28 @@ describe("code-export", () => {
     expect(getTypeScriptExport(options)).toContain("const notify: ToastOptions = {");
     expect(getUsageExport(options)).toContain('toast.success("Custom toast"');
     expect(getUsageExport(options)).toContain("description");
+  });
+
+  it("exports the reference `const notify={` shape without `persistent`", () => {
+    const options = {
+      ...DEFAULT_OPTIONS_BY_TYPE.success,
+      title: "Success!",
+      message: "Your changes have been saved successfully.",
+      textColor: "#FFFFFF",
+    };
+
+    expect(getNotifyExport(options)).toBe(`const notify={
+  "type": "success",
+  "title": "Success!",
+  "message": "Your changes have been saved successfully.",
+  "duration": 3000,
+  "position": "top-right",
+  "backgroundColor": "#22c55e",
+  "textColor": "#FFFFFF",
+  "showIcon": true,
+  "showCloseButton": true,
+  "animation": "fade"
+}`);
   });
 
   it("omits default values from the usage snippet", () => {

@@ -45,6 +45,19 @@ describe("toastReducer", () => {
     expect(next.every((toast) => toast.id !== "toast-1")).toBe(true);
   });
 
+  it("caps toasts per scope and position independently", () => {
+    const scoped = (id: string, scope?: string): ToastItem => ({
+      ...createToast(id, "top-right"),
+      scope,
+    });
+    const preview = Array.from({ length: 5 }, (_, index) => scoped(`p-${index}`, "preview"));
+
+    const next = toastReducer(preview, { type: "ADD", toast: scoped("page-1") });
+
+    expect(next).toHaveLength(6);
+    expect(next.filter((toast) => toast.scope === "preview")).toHaveLength(5);
+  });
+
   it("dismisses a toast and bumps it into exiting state", () => {
     const next = toastReducer([createToast("toast-1", "top-right")], {
       type: "DISMISS",

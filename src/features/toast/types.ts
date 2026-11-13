@@ -31,6 +31,8 @@ export interface Preset {
 
 export interface ToastItem extends ToastOptions {
   id: string;
+  /** Which Toaster renders this toast. Unscoped toasts go to the page-level Toaster. */
+  scope?: string;
   createdAt: number;
   remaining: number;
   paused: boolean;

@@ -29,9 +29,20 @@ const stackClasses: Record<(typeof positions)[number], string> = {
   "bottom-right": "bottom-4 right-4 items-end",
 };
 
-export function Toaster() {
-  const { toasts } = useToast();
+interface ToasterProps {
+  /** Only render toasts added with this scope. Omit for the page-level Toaster (unscoped toasts). */
+  scope?: string;
+  /**
+   * Render inside this element (it must be `position: relative`) instead of at the viewport edges.
+   * Pass `null` while the element is not mounted yet; nothing renders until it is.
+   */
+  container?: HTMLElement | null;
+}
+
+export function Toaster({ scope, container }: ToasterProps = {}) {
+  const { toasts: allToasts } = useToast();
   const mounted = useSyncExternalStore(subscribeToMount, getClientMountSnapshot, getServerMountSnapshot);
+  const toasts = allToasts.filter((toast) => toast.scope === scope);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -49,25 +60,34 @@ export function Toaster() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [toasts]);
 
-  if (!mounted) {
+  const target = container === undefined ? (mounted ? document.body : null) : container;
+  if (!mounted || !target) {
     return null;
   }
 
+  const contained = container !== undefined;
+
   return createPortal(
-    <div className="pointer-events-none fixed inset-0 z-50">
+    <div className={contained ? "pointer-events-none absolute inset-0 z-10" : "pointer-events-none fixed inset-0 z-50"}>
       {positions.map((position) => {
         const stack = toasts.filter((toast) => toast.position === position);
         if (!stack.length) return null;
 
+        // Newest toast sits nearest the edge it is anchored to: first at the top, last at the bottom.
+        const ordered = position.startsWith("top") ? [...stack].reverse() : stack;
+
         return (
-          <div key={position} className={`pointer-events-none absolute flex flex-col gap-3 ${stackClasses[position]}`}>
-            {stack.map((toast) => (
+          <div
+            key={position}
+            className={`pointer-events-none absolute flex max-w-[calc(100%-2rem)] flex-col gap-3 ${stackClasses[position]}`}
+          >
+            {ordered.map((toast) => (
               <Toast key={toast.id} toast={toast} />
             ))}
           </div>
         );
       })}
     </div>,
-    document.body,
+    target,
   );
 }

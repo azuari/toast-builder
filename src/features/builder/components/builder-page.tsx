@@ -13,7 +13,7 @@ import {
   TriangleAlert,
   Upload,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -29,13 +29,23 @@ import { toToastOptions } from "@/features/builder/state/builder-reducer";
 import { useBuilderState } from "@/features/builder/hooks/use-builder-state";
 import { addOrReplacePreset, savePresets, usePresets } from "@/features/builder/hooks/use-presets";
 import { getContrastRatio } from "@/features/builder/lib/contrast";
-import { getJsonExport, getTypeScriptExport, getUsageExport } from "@/features/builder/lib/code-export";
+import { getNotifyExport, getTypeScriptExport, getUsageExport } from "@/features/builder/lib/code-export";
 import { TYPE_COLORS } from "@/features/toast/constants";
 import { presetsSchema } from "@/features/toast/schemas";
+import { addToast } from "@/features/toast/store";
 import { toast } from "@/features/toast/toast";
-import { Toast } from "@/features/toast/toast-item";
-import type { ToastAnimation, ToastItem, ToastPosition, ToastType } from "@/features/toast/types";
+import { Toaster } from "@/features/toast/toaster";
+import type { ToastAnimation, ToastPosition, ToastType } from "@/features/toast/types";
 import { cn } from "@/lib/cn";
+import { copyText } from "@/lib/clipboard";
+
+/** Toasts added from "Show Notification" render inside the Preview stage under this scope. */
+export const PREVIEW_SCOPE = "builder-preview";
+
+const HEX_COLOR = /^#[0-9A-Fa-f]{6}$/;
+
+// App messages (preset saved, copy failed, …) sit at the bottom so they never cover the fixed theme toggle.
+const APP_TOAST = { position: "bottom-center" } as const;
 
 const positionKeys: ToastPosition[] = [
   "top-left",
@@ -46,7 +56,7 @@ const positionKeys: ToastPosition[] = [
   "bottom-right",
 ];
 
-const exportTabs = ["JSON", "TypeScript", "Usage"] as const;
+const exportTabs = ["JavaScript", "TypeScript", "Usage"] as const;
 
 const typeOrder: ToastType[] = ["success", "error", "warning", "info"];
 const animationOptions: ToastAnimation[] = ["fade", "slide", "bounce"];
@@ -55,55 +65,65 @@ export function BuilderPage() {
   const [state, dispatch] = useBuilderState();
   const presets = usePresets();
   const [presetName, setPresetName] = useState("");
-  const [exportTab, setExportTab] = useState<(typeof exportTabs)[number]>("JSON");
+  const [exportTab, setExportTab] = useState<(typeof exportTabs)[number]>("JavaScript");
   const [copied, setCopied] = useState(false);
+  const [stage, setStage] = useState<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const copiedTimer = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (copiedTimer.current !== null) {
+        window.clearTimeout(copiedTimer.current);
+      }
+    },
+    [],
+  );
 
   const contrastRatio = useMemo(
     () => getContrastRatio(state.textColor, state.backgroundColor),
     [state.textColor, state.backgroundColor],
   );
 
-  const backgroundValid = /^#[0-9A-Fa-f]{6}$/.test(state.backgroundColor);
-  const textColorValid = /^#[0-9A-Fa-f]{6}$/.test(state.textColor);
+  const backgroundValid = HEX_COLOR.test(state.backgroundColor);
+  const textColorValid = HEX_COLOR.test(state.textColor);
+  const colorsValid = backgroundValid && textColorValid;
+  const accentColor = TYPE_COLORS[state.type].backgroundColor;
+
   const exportContent = useMemo(() => {
     const options = toToastOptions(state);
-    if (exportTab === "JSON") return getJsonExport(options);
+    if (exportTab === "JavaScript") return getNotifyExport(options);
     if (exportTab === "TypeScript") return getTypeScriptExport(options);
     return getUsageExport(options);
   }, [state, exportTab]);
-
-  const previewToast: ToastItem = useMemo(
-    () => ({
-      ...toToastOptions(state),
-      id: "preview",
-      createdAt: 0,
-      remaining: state.persistent ? 0 : state.duration * 1000,
-      paused: false,
-      status: "visible",
-      lastUpdatedAt: 0,
-    }),
-    [state],
-  );
 
   const handleTypeChange = (type: ToastType) => {
     dispatch({ type: "SET_TYPE", value: type });
   };
 
   const handleShowNotification = () => {
-    const options = toToastOptions(state);
-    toast({ ...options, title: state.title || "Notification", message: state.message || "" });
+    if (!colorsValid) {
+      toast.info("Fix the invalid colour values before showing the notification.", APP_TOAST);
+      return;
+    }
+
+    addToast({ ...toToastOptions(state), title: state.title || "Notification" }, PREVIEW_SCOPE);
   };
 
   const handleSavePreset = () => {
     const trimmed = presetName.trim();
     if (!trimmed) {
-      toast.info("Preset name is required.");
+      toast.info("Preset name is required.", APP_TOAST);
       return;
     }
 
     if (trimmed.length > 40) {
-      toast.info("Preset names must be 1–40 characters long.");
+      toast.info("Preset names must be 1–40 characters long.", APP_TOAST);
+      return;
+    }
+
+    if (!colorsValid) {
+      toast.info("Fix the invalid colour values before saving a preset.", APP_TOAST);
       return;
     }
 
@@ -118,7 +138,7 @@ export function BuilderPage() {
     const result = addOrReplacePreset(presets, { name: trimmed, options: toToastOptions(state) });
     savePresets(result.presets);
     setPresetName("");
-    toast.success(result.didOverwrite ? "Preset updated." : "Preset saved.");
+    toast.success(result.didOverwrite ? "Preset updated." : "Preset saved.", APP_TOAST);
   };
 
   const handleDeletePreset = (id: string) => {
@@ -126,14 +146,16 @@ export function BuilderPage() {
   };
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(exportContent);
-      setCopied(true);
-      toast.success("Copied to clipboard.");
-      window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      toast.info("Copy failed. Please try again.");
+    if (!(await copyText(exportContent))) {
+      toast.info("Copy failed. Please try again.", APP_TOAST);
+      return;
     }
+
+    setCopied(true);
+    if (copiedTimer.current !== null) {
+      window.clearTimeout(copiedTimer.current);
+    }
+    copiedTimer.current = window.setTimeout(() => setCopied(false), 2000);
   };
 
   const handleImportPreset = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -150,9 +172,9 @@ export function BuilderPage() {
         throw new Error("Invalid preset data");
       }
       savePresets(result.data);
-      toast.success("Presets imported.");
+      toast.success("Presets imported.", APP_TOAST);
     } catch {
-      toast.info("The selected file could not be imported.");
+      toast.info("The selected file could not be imported.", APP_TOAST);
     } finally {
       event.target.value = "";
     }
@@ -236,16 +258,20 @@ export function BuilderPage() {
               <Field label="Duration" className="space-y-3">
                 <div className="flex items-center justify-between text-sm text-slate-600 dark:text-slate-300">
                   <span>Auto-dismiss</span>
-                  <span className="font-medium text-violet-700 dark:text-violet-300">{state.duration}s</span>
+                  <span data-testid="duration-value" className="font-medium" style={{ color: accentColor }}>
+                    {state.persistent ? 0 : state.duration}s
+                  </span>
                 </div>
                 <Slider
+                  aria-label="Duration in seconds"
                   min={1}
                   max={10}
                   step={0.5}
                   value={state.duration}
                   onChange={(event) => dispatch({ type: "UPDATE_DURATION", value: Number(event.target.value) })}
                   disabled={state.persistent}
-                  className={cn(state.persistent && "cursor-not-allowed opacity-50")}
+                  style={{ accentColor }}
+                  className={cn(state.persistent && "cursor-not-allowed opacity-40 grayscale")}
                 />
               </Field>
 
@@ -277,8 +303,8 @@ export function BuilderPage() {
                       >
                         {position
                           .split("-")
-                          .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1, 2))
-                          .join("")}
+                          .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+                          .join(" ")}
                       </button>
                     );
                   })}
@@ -361,12 +387,13 @@ export function BuilderPage() {
                 </div>
               </div>
 
-              <div className="rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-6 dark:border-slate-700 dark:bg-slate-950">
-                <div className="flex min-h-52 items-center justify-center">
-                  <div className="w-full max-w-sm">
-                    <Toast toast={previewToast} isPreview />
-                  </div>
-                </div>
+              <div
+                ref={setStage}
+                role="region"
+                aria-label="Notification preview"
+                className="relative h-72 overflow-hidden rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 dark:border-slate-700 dark:bg-slate-950"
+              >
+                <Toaster scope={PREVIEW_SCOPE} container={stage} />
               </div>
 
               <Button className="mt-4 w-full" onClick={handleShowNotification}>
@@ -400,28 +427,17 @@ export function BuilderPage() {
                   {presets.map((preset) => (
                     <div
                       key={preset.id}
-                      className="flex items-center gap-3 rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700"
+                      className="flex items-center gap-1 rounded-xl border border-slate-200 pr-1 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800/60"
                     >
                       <button
                         type="button"
-                        onClick={() => {
-                          dispatch({ type: "RESET" });
-                          dispatch({ type: "SET_TYPE", value: preset.options.type });
-                          dispatch({ type: "UPDATE_TITLE", value: preset.options.title });
-                          dispatch({ type: "UPDATE_MESSAGE", value: preset.options.message });
-                          dispatch({ type: "UPDATE_DURATION", value: preset.options.duration / 1000 });
-                          dispatch({ type: "SET_PERSISTENT", value: preset.options.persistent });
-                          dispatch({ type: "SET_POSITION", value: preset.options.position });
-                          dispatch({ type: "UPDATE_BACKGROUND_COLOR", value: preset.options.backgroundColor });
-                          dispatch({ type: "UPDATE_TEXT_COLOR", value: preset.options.textColor });
-                          dispatch({ type: "SET_SHOW_ICON", value: preset.options.showIcon });
-                          dispatch({ type: "SET_SHOW_CLOSE_BUTTON", value: preset.options.showCloseButton });
-                          dispatch({ type: "SET_ANIMATION", value: preset.options.animation });
-                        }}
-                        className="flex flex-1 items-center gap-3 text-left"
+                        aria-label={`Load ${preset.name}`}
+                        onClick={() => dispatch({ type: "LOAD", options: preset.options })}
+                        className="flex flex-1 items-center gap-3 rounded-xl px-3 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
                       >
                         <span
-                          className="h-3 w-3 rounded-full"
+                          aria-hidden="true"
+                          className="h-3 w-3 shrink-0 rounded-full"
                           style={{ backgroundColor: TYPE_COLORS[preset.options.type].backgroundColor }}
                         />
                         <span className="flex-1 text-sm font-medium text-slate-700 dark:text-slate-200">{preset.name}</span>
@@ -431,6 +447,7 @@ export function BuilderPage() {
                         variant="ghost"
                         size="icon"
                         aria-label={`Delete ${preset.name}`}
+                        className="text-slate-500 hover:bg-red-50 hover:text-red-600 dark:text-slate-400 dark:hover:bg-red-950/40 dark:hover:text-red-400"
                         onClick={() => handleDeletePreset(preset.id)}
                       >
                         <Trash2 className="h-4 w-4" />
@@ -460,7 +477,7 @@ export function BuilderPage() {
                 <div className="flex items-center gap-2">
                   <Button variant="outline" size="sm" onClick={handleCopy} className="bg-slate-900 text-slate-50 hover:bg-slate-800">
                     {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                    {copied ? "Copied" : "Copy"}
+                    {copied ? "Copied!" : "Copy to Clipboard"}
                   </Button>
                 </div>
               </div>

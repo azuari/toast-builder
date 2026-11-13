@@ -6,17 +6,15 @@ import type {
   ToastType,
 } from "@/features/toast/types";
 
-export interface BuilderCustomised {
-  title: boolean;
-  backgroundColor: boolean;
-  textColor: boolean;
-  showIcon: boolean;
-}
+export const BUILDER_DEFAULT_TITLE = "Success!";
+export const BUILDER_DEFAULT_MESSAGE = "Your changes have been saved successfully.";
+export const BUILDER_DEFAULT_DURATION_SECONDS = 3;
 
 export interface BuilderState {
   type: ToastType;
   title: string;
   message: string;
+  /** Slider value in seconds. Kept while `persistent` is on so unchecking restores it. */
   duration: number;
   persistent: boolean;
   position: ToastPosition;
@@ -25,7 +23,6 @@ export interface BuilderState {
   showIcon: boolean;
   showCloseButton: boolean;
   animation: ToastAnimation;
-  customised: BuilderCustomised;
 }
 
 export type BuilderAction =
@@ -40,6 +37,7 @@ export type BuilderAction =
   | { type: "SET_SHOW_ICON"; value: boolean }
   | { type: "SET_SHOW_CLOSE_BUTTON"; value: boolean }
   | { type: "SET_ANIMATION"; value: ToastAnimation }
+  | { type: "LOAD"; options: ToastOptions }
   | { type: "RESET" };
 
 export const getInitialBuilderState = (type: ToastType = "success"): BuilderState => {
@@ -47,9 +45,9 @@ export const getInitialBuilderState = (type: ToastType = "success"): BuilderStat
 
   return {
     type,
-    title: defaults.title,
-    message: defaults.message,
-    duration: defaults.duration,
+    title: BUILDER_DEFAULT_TITLE,
+    message: BUILDER_DEFAULT_MESSAGE,
+    duration: BUILDER_DEFAULT_DURATION_SECONDS,
     persistent: defaults.persistent,
     position: defaults.position,
     backgroundColor: defaults.backgroundColor,
@@ -57,12 +55,6 @@ export const getInitialBuilderState = (type: ToastType = "success"): BuilderStat
     showIcon: defaults.showIcon,
     showCloseButton: defaults.showCloseButton,
     animation: defaults.animation,
-    customised: {
-      title: false,
-      backgroundColor: false,
-      textColor: false,
-      showIcon: false,
-    },
   };
 };
 
@@ -72,83 +64,62 @@ export const builderReducer = (
 ): BuilderState => {
   switch (action.type) {
     case "SET_TYPE": {
-      const defaults = DEFAULT_OPTIONS_BY_TYPE[action.value];
+      // The type drives the colour only; the title and message are the user's own text.
       return {
         ...state,
         type: action.value,
-        title: state.customised.title ? state.title : defaults.title,
-        backgroundColor: state.customised.backgroundColor ? state.backgroundColor : defaults.backgroundColor,
-        textColor: state.customised.textColor ? state.textColor : defaults.textColor,
-        showIcon: state.customised.showIcon ? state.showIcon : defaults.showIcon,
-        message: state.message,
+        backgroundColor: DEFAULT_OPTIONS_BY_TYPE[action.value].backgroundColor,
       };
     }
     case "UPDATE_TITLE": {
-      return {
-        ...state,
-        title: action.value.slice(0, 60),
-        customised: { ...state.customised, title: true },
-      };
+      return { ...state, title: action.value.slice(0, 60) };
     }
     case "UPDATE_MESSAGE": {
-      return {
-        ...state,
-        message: action.value.slice(0, 200),
-      };
+      return { ...state, message: action.value.slice(0, 200) };
     }
     case "UPDATE_DURATION": {
-      return {
-        ...state,
-        duration: action.value,
-      };
+      return { ...state, duration: action.value };
     }
     case "SET_PERSISTENT": {
-      return {
-        ...state,
-        persistent: action.value,
-      };
+      return { ...state, persistent: action.value };
     }
     case "SET_POSITION": {
-      return {
-        ...state,
-        position: action.value,
-      };
+      return { ...state, position: action.value };
     }
     case "UPDATE_BACKGROUND_COLOR": {
-      return {
-        ...state,
-        backgroundColor: action.value,
-        customised: { ...state.customised, backgroundColor: true },
-      };
+      return { ...state, backgroundColor: action.value };
     }
     case "UPDATE_TEXT_COLOR": {
-      return {
-        ...state,
-        textColor: action.value,
-        customised: { ...state.customised, textColor: true },
-      };
+      return { ...state, textColor: action.value };
     }
     case "SET_SHOW_ICON": {
-      return {
-        ...state,
-        showIcon: action.value,
-        customised: { ...state.customised, showIcon: true },
-      };
+      return { ...state, showIcon: action.value };
     }
     case "SET_SHOW_CLOSE_BUTTON": {
-      return {
-        ...state,
-        showCloseButton: action.value,
-      };
+      return { ...state, showCloseButton: action.value };
     }
     case "SET_ANIMATION": {
+      return { ...state, animation: action.value };
+    }
+    case "LOAD": {
+      const { options } = action;
       return {
-        ...state,
-        animation: action.value,
+        type: options.type,
+        title: options.title,
+        message: options.message,
+        // A persistent preset is stored with duration 0; keep the current slider value for when it is unchecked.
+        duration: options.duration > 0 ? options.duration / 1000 : state.duration,
+        persistent: options.persistent,
+        position: options.position,
+        backgroundColor: options.backgroundColor,
+        textColor: options.textColor,
+        showIcon: options.showIcon,
+        showCloseButton: options.showCloseButton,
+        animation: options.animation,
       };
     }
     case "RESET": {
-      return getInitialBuilderState(state.type);
+      return getInitialBuilderState("success");
     }
     default:
       return state;
@@ -159,7 +130,7 @@ export const toToastOptions = (state: BuilderState): ToastOptions => ({
   type: state.type,
   title: state.title,
   message: state.message,
-  duration: state.duration * 1000,
+  duration: state.persistent ? 0 : state.duration * 1000,
   persistent: state.persistent,
   position: state.position,
   backgroundColor: state.backgroundColor,

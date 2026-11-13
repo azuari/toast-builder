@@ -4,6 +4,16 @@ export function getJsonExport(options: ToastOptions) {
   return JSON.stringify(options, null, 2);
 }
 
+/**
+ * The reference app's export shape: `const notify={` followed by the options as JSON.
+ * `persistent` is left out because a persistent toast is already expressed as `duration: 0`.
+ */
+export function getNotifyExport(options: ToastOptions) {
+  const { persistent, ...rest } = options;
+  void persistent;
+  return `const notify=${JSON.stringify(rest, null, 2)}`;
+}
+
 export function getTypeScriptExport(options: ToastOptions) {
   const lines = [
     "import type { ToastOptions } from \"@/features/toast/types\";",

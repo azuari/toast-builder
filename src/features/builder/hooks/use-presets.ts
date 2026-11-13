@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 
+import { createId } from "@/lib/id";
 import { readStorage, writeStorage } from "@/lib/storage";
 import { presetsSchema } from "@/features/toast/schemas";
 import type { Preset, ToastOptions } from "@/features/toast/types";
@@ -61,7 +62,7 @@ export function addOrReplacePreset(
   }
 
   return {
-    presets: [...presets, { id: crypto.randomUUID(), name: trimmed, options: input.options, createdAt: new Date().toISOString() }],
+    presets: [...presets, { id: createId(), name: trimmed, options: input.options, createdAt: new Date().toISOString() }],
     didOverwrite: false,
   };
 }

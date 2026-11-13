@@ -1,3 +1,5 @@
+import { createId } from "@/lib/id";
+
 import { DEFAULT_TOAST_OPTIONS } from "./constants";
 import type { ToastItem, ToastOptions } from "./types";
 
@@ -22,9 +24,10 @@ export function toastReducer(stateList: ToastItem[], action: ToastAction): Toast
       const grouped = new Map<string, ToastItem[]>();
 
       for (const toast of next) {
-        const existing = grouped.get(toast.position) ?? [];
+        const key = `${toast.scope ?? ""}:${toast.position}`;
+        const existing = grouped.get(key) ?? [];
         existing.push(toast);
-        grouped.set(toast.position, existing);
+        grouped.set(key, existing);
       }
 
       const kept: ToastItem[] = [];
@@ -86,12 +89,13 @@ export function toastReducer(stateList: ToastItem[], action: ToastAction): Toast
   }
 }
 
-export function createToastItem(options: ToastOptions): ToastItem {
+export function createToastItem(options: ToastOptions, scope?: string): ToastItem {
   const now = Date.now();
 
   return {
     ...options,
-    id: crypto.randomUUID(),
+    scope,
+    id: createId(),
     createdAt: now,
     remaining: options.persistent ? 0 : options.duration,
     paused: false,
@@ -154,8 +158,8 @@ export function clearToasts() {
   }
 }
 
-export function addToast(options: ToastOptions) {
-  const toast = createToastItem(options);
+export function addToast(options: ToastOptions, scope?: string) {
+  const toast = createToastItem(options, scope);
   dispatchToastAction({ type: "ADD", toast });
   return toast.id;
 }
